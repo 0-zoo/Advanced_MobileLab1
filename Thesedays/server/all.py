@@ -1,41 +1,18 @@
-# import requests
-# from bs4 import BeautifulSoup
-# import time
-
-# # 기사 내용을 저장할 전역 변수 - DB 자제
-# articles = []
-
-# def crawl_articles():
-#     url = "https://search.naver.com/search.naver?where=news&sm=tab_jum&query=%EC%82%BC%EC%84%B1%EC%A0%84%EC%9E%90"
-#     response = requests.get(url)
-#     soup = BeautifulSoup(response.text, "html.parser")
-#     article_groups = soup.select("div.info_group")
-
-#     for article_group in article_groups:
-#         links = article_group.select("a.info")
-#         if len(links) >= 2:
-#             article_url = links[1].attrs["href"]
-#             content = scrape_article(article_url)
-#             articles.append(content)
-#             time.sleep(0.3)
-
-# def scrape_article(article_url):
-#     response = requests.get(article_url, headers={'User-agent': 'Mozilla/5.0'})
-#     soup = BeautifulSoup(response.text, "html.parser")
-#     content = soup.select_one("#dic_area").text
-#     return content
-
-# if __name__ == "__main__":
-#     crawl_articles()
-
-import array
 from bs4 import BeautifulSoup
 import requests
 import re
 from tqdm import tqdm
-from konlpy.tag import Komoran
+from config import OPENAI_API_KEY
+from openai.error import InvalidRequestError
 import openai
-import configparser
+import json
+import requests
+
+
+
+import tiktoken
+enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+
 
 
 # 페이지 url 형식에 맞게 바꾸어 주는 함수 만들기
@@ -127,6 +104,10 @@ for i in tqdm(range(len(news_url_1))):
         final_urls.append(news_url_1[i])
     else:
         pass
+    
+# Create a list to store news summaries and URLs
+news_summaries = []
+news_urls = []
 
 
 # 뉴스 내용 크롤링
@@ -148,7 +129,10 @@ for i in tqdm(final_urls):
     # 기사 텍스트만 가져오기
     # list합치기
     content = ''.join(str(content))
-
+    
+    # 기사 URL 가져오기
+    news_url = i
+    
     # html태그제거 및 텍스트 다듬기
     pattern1 = '<[^>]*>'
     title = re.sub(pattern=pattern1, repl='', string=str(title))
@@ -156,22 +140,19 @@ for i in tqdm(final_urls):
     pattern2 = """[\n\n\n\n\n// flash 오류를 우회하기 위한 함수 추가\nfunction _flash_removeCallback() {}"""
     content = content.replace(pattern2, '')
 
-     #copied news
+    #copied news
     copied_content = content
 
     #tokenize the content
     #token is smaller than 150 it was photo news
-    tokenizer = Komoran()
-    MAX_TOKENS_COUNT = 4096
-    tokens = tokenizer.morphs(copied_content)
 
-    if len(tokens) > MAX_TOKENS_COUNT or len(tokens) < 150:
-        print("\ntoken count: ", len(tokens)) 
-        print("skip this news\n")
+    tokens = len(enc.encode(copied_content))
+
+    if tokens > 3800 or tokens < 300:
         continue
 
-    print("\ntoken count: ", len(tokens),"\n") 
-
+    print("tokens: ", tokens)
+ 
     news_titles.append(title)
     news_contents.append(content)
 
@@ -187,66 +168,56 @@ for i in tqdm(final_urls):
 print("\n검색된 기사 갯수: 총 ",(page2+1-page)*10,'개')
 print("\n[뉴스 제목]")
 print(len(news_titles))
-#print(news_titles)
-#print("\n[뉴스 링크]")
-#print(final_urls)
-#print("\n[뉴스 내용]")
-#print(news_contents)
 
-#print('news_title: ',len(news_titles))
-#print('news_url: ',len(final_urls))
-#print('news_contents: ',len(news_contents))
-#print('news_dates: ',len(news_dates))
-
-
-news_summmary = []
-
-# .config 파일에서 API 키를 읽어오는 함수
-def get_api_key():
-     config = configparser.ConfigParser()
-     config.read('.config')
-     return config['OPENAI']['API_KEY']
-
+news_summary = []
 
 # 기사 내용을 요약하는 함수
-def summarize_article(news_content):
-    # api_key = get_api_key()
-    # openai.api_key = api_key
-    openai.api_key = API_KEY
+def summarize_article(news_content, api_key):
+    openai.api_key = api_key  # OpenAI API 키를 입력하세요.
     
-    # ChatGPT API를 사용하여 요약 생성
-    response = openai.Completion.create(
-        engine="text-davinci-003",
-        prompt=news_content,
-        max_tokens=100,
-        n=1,
-        stop=None,
-        temperature=0.3,
-        #model=model_id
-    )
+    try:
+        # Chat Completion API 요청
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[
+                {"role": "system", "content": "넌 뉴스를 요약해주는 인공지능이야. 내가 주는 뉴스를 한국어로 120token 이내로 요약해줘. 그리고 문장을 마무리 할때는 꼭 동사로 -이다로 끝내줘."},
+                {"role": "user", "content": news_content}
+            ],
+        )
+        
+        
+        # 요약 결과 추출
+        summary = response['choices'][0]['message']['content']
+        return summary
+    except InvalidRequestError as e:
+        print(e)
+        return None
 
-    print(response)
 
-    summary = response.choices[0].text.strip()
-    print(summary)
-    return summary
-
-# if __name__ == "__main__":
-#     # crawler.py에서 저장한 기사 내용을 읽어옴
+for news_content in news_contents: #
+    if news_contents.index(news_content) > 3: #
+        break #
     
-#     # 각 기사 내용을 요약
-#     for news_content in news_contents:
-#         summary = summarize_article(news_content)
-#         news_summmary.append(summary)
-#         # 요약 결과 처리 로직 추가
-for news_content in news_contents:
-    if news_content == None:
-        continue
-    summary = summarize_article(news_content)
+    summary = summarize_article(news_content, OPENAI_API_KEY)
+    print(news_contents.index(news_content))
+    
     print(summary)
-    news_summmary.append(summary)
-        # 요약 결과 처리 로직 추가
+    print("\n")
+    if summary is not None:
+        news_summary.append(summary)
+        news_urls.append(news_url)
+        
+# Create a dictionary to store the summaries and URLs
+news_data = {
+    "summaries": news_summary,
+    "urls": news_urls
+}
 
+# Convert the dictionary to JSON format
+news_data_json = json.dumps(news_data, ensure_ascii=False)
 
-print("\n[뉴스 요약]\n")
-print(news_summmary)
+# Print the JSON string
+print(news_data_json)
+        
+        
+        

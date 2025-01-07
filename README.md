@@ -9,7 +9,7 @@ DB - MongoDB
 
 ## 디렉토리구조 - 추가 예정
 Thesedays
-- node_modules: 개발에 사용되는 모듈
+
 - server : 서버
     -index.js: 서버의 entry point. HTTP 생성, API 앤드포인트 및 기본 라우팅 설정
 
